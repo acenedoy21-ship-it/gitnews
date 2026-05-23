@@ -308,18 +308,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
             body_json = json.loads(body)
             api_key = os.environ.get('OPENAI_API_KEY', '')
 
-            # Generate cache key from prompt
+            # Generate cache key from article title (unique per article)
             messages = body_json.get('messages', [])
             user_msg = next((m['content'] for m in messages if m.get('role') == 'user'), '')
-            cache_key = user_msg[:100]
+            # Extract article title from prompt for unique caching
+            title_match = re.search(r'Title:\s*(.+)', user_msg)
+            cache_key = title_match.group(1).strip()[:200] if title_match else user_msg[:200]
 
-            # Check cache
-            with ai_cache_lock:
-                if cache_key in ai_cache:
-                    cached = ai_cache[cache_key]
-                    if time.time() - cached.get('ts', 0) < 3600:  # 1 hour cache
-                        self._send_json(json.loads(cached['response']))
-                        return
+            # Check cache (skip if ?nocache=1 in URL)
+            no_cache = 'nocache=1' in self.path
+            if not no_cache:
+                with ai_cache_lock:
+                    if cache_key in ai_cache:
+                        cached = ai_cache[cache_key]
+                        if time.time() - cached.get('ts', 0) < 3600:
+                            self._send_json(json.loads(cached['response']))
+                            return
 
             req = urllib.request.Request(
                 'https://opengateway.gitlawb.com/v1/chat/completions',
