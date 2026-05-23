@@ -251,6 +251,81 @@ def parse_date(date_str):
             pass
     return 0
 
+# Placeholder images by category
+PLACEHOLDER_IMAGES = {
+    'bitcoin': 'https://images.unsplash.com/photo-1518546305927-5a555bb7020d?w=400',
+    'ethereum': 'https://images.unsplash.com/photo-1622790698141-94e30467e1e3?w=400',
+    'crypto': 'https://images.unsplash.com/photo-1621761191319-c6fb62004040?w=400',
+    'market': 'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=400',
+    'default': 'https://images.unsplash.com/photo-1516245834210-c4c142787335?w=400',
+}
+
+def is_crypto_related(article):
+    """Check if article is related to crypto/blockchain/finance."""
+    text = f"{article['title']} {article['description']} {' '.join(article.get('tags', []))}".lower()
+
+    # Always pass if from crypto-specific source
+    crypto_sources = [
+        'coindesk', 'cointelegraph', 'bitcoin', 'decrypt', 'the block', 'blockworks',
+        'cryptonews', 'beincrypto', 'cryptoslate', 'ambcrypto', 'newsbtc', 'daily hodl',
+        'crypto brief', 'coingape', 'coincodex', 'bitcoinist', 'defillama', 'dl news',
+        'nft now', 'thedefiant', 'unchained', 'messari', 'kraken', 'coinbase', 'binance',
+        'coingape', 'investing.com crypto', 'finance magnates', 'crypto',
+        'reddit r/bitcoin', 'reddit r/cryptocurrency', 'reddit r/ethereum', 'reddit r/crypto',
+        'reddit r/defi', 'coin bureau', 'bitboy', 'altcoin daily', 'benjamin cowen',
+        'digital asset news', 'bankless', 'unchained podcast', 'coingecko podcast',
+        'chainlink', 'vitalik', 'l2beat', 'aave', 'uniswap', 'open', 'paradigm',
+        'solana', 'polkadot', 'cardano', 'tether', 'circle',
+    ]
+    source_lower = article['source'].lower()
+    for cs in crypto_sources:
+        if cs in source_lower:
+            return True
+
+    # Crypto keywords
+    crypto_words = [
+        'bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'blockchain', 'defi', 'nft',
+        'token', 'coin', 'mining', 'wallet', 'exchange', 'binance', 'coinbase',
+        'solana', 'cardano', 'polkadot', 'avalanche', 'polygon', 'ripple', 'xrp',
+        'dogecoin', 'doge', 'shiba', 'stablecoin', 'usdt', 'usdc', 'usdt',
+        'altcoin', 'memecoin', 'web3', 'dao', 'dex', 'swap', 'staking', 'yield',
+        'airdrop', 'ico', 'ido', 'halving', 'hash', 'satoshi', 'vitalik',
+        'uniswap', 'aave', 'compound', 'maker', 'lido', 'curve', 'opensea',
+        'metamask', 'ledger', 'trezor', 'layer 2', 'rollup', 'zk', 'consensus',
+        'smart contract', 'dapp', 'oracle', 'chainlink', 'polkadot', 'cosmos',
+        'arbitrum', 'optimism', 'base', 'linea', 'zksync',
+    ]
+    for w in crypto_words:
+        if w in text:
+            return True
+
+    # Finance/macro keywords (relevant to crypto market)
+    macro_words = [
+        'federal reserve', 'fed', 'interest rate', 'inflation', 'recession',
+        'gdp', 'employment', 'tariff', 'sanction', 'trade war', 'banking crisis',
+        'stock market', 'nasdaq', 's&p', 'dow jones', 'wall street',
+        'gold', 'oil', 'commodity', 'treasury', 'bond', 'forex',
+        'dollar', 'euro', 'currency', 'monetary', 'fiscal',
+        'etf', 'regulation', 'sec', 'cftc', 'compliance',
+        'war', 'conflict', 'geopolitics', 'nuclear', 'sanctions',
+    ]
+    for w in macro_words:
+        if w in text:
+            return True
+
+    return False
+
+def get_fallback_image(article):
+    """Generate fallback image based on content."""
+    text = f"{article['title']} {article['description']}".lower()
+    if 'bitcoin' in text or 'btc' in text:
+        return PLACEHOLDER_IMAGES['bitcoin']
+    if 'ethereum' in text or 'eth' in text:
+        return PLACEHOLDER_IMAGES['ethereum']
+    if any(w in text for w in ['market', 'stock', 'trading', 'price']):
+        return PLACEHOLDER_IMAGES['market']
+    return PLACEHOLDER_IMAGES['crypto']
+
 # ===== NEWS REFRESH =====
 def refresh_news():
     global news_cache, is_loading
@@ -271,9 +346,17 @@ def refresh_news():
     for r in results:
         all_articles.extend(r)
 
+    # Filter: only crypto/macro related articles
+    filtered = [a for a in all_articles if is_crypto_related(a)]
+
+    # Add fallback images
+    for a in filtered:
+        if not a.get('image'):
+            a['image'] = get_fallback_image(a)
+
     seen = set()
     deduped = []
-    for a in all_articles:
+    for a in filtered:
         key = re.sub(r'[^a-z0-9]', '', a['title'].lower())[:40]
         if key not in seen and len(key) > 5:
             seen.add(key)
