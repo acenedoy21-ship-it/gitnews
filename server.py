@@ -280,18 +280,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
 
     def _serve_news(self):
-        with news_lock:
-            raw = json.dumps({'articles': news_cache, 'total': len(news_cache), 'sources': len(RSS_FEEDS)}).encode()
-        # Gzip compress to avoid BrokenPipeError on large responses
+        # Support pagination and limiting to avoid huge responses
         import gzip
-        compressed = gzip.compress(raw)
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Encoding', 'gzip')
-        self.send_header('Content-Length', str(len(compressed)))
-        self._cors()
-        self.end_headers()
-        self.wfile.write(compressed)
+        query = self.path.split('?')[1] if '?' in self.path else ''
+        params = dict(p.split('=') for p in query.split('&') if '=' in p) if query else {}
+        limit = min(int(params.get('limit', 50)), 200)
+
+        with news_lock:
+            articles = news_cache[:limit]
+            raw = json.dumps({
+                'articles': articles,
+                'total': len(news_cache),
+                'returned': len(articles),
+                'sources': len(RSS_FEEDS)
+            }).encode()
+
+        try:
+            compressed = gzip.compress(raw)
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Encoding', 'gzip')
+            self.send_header('Content-Length', str(len(compressed)))
+            self._cors()
+            self.end_headers()
+            self.wfile.write(compressed)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # Client disconnected, ignore
 
     def _proxy_ai(self):
         try:
@@ -336,7 +350,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
     def log_message(self, format, *args):
+        # Suppress BrokenPipeError spam in logs
+        if 'Broken pipe' in str(args) or 'Connection reset' in str(args):
+            return
         pass
+
+    def handle_one_request(self):
+        try:
+            super().handle_one_request()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
 if __name__ == '__main__':
     print(f'GITNEWS running on http://localhost:{PORT}')
