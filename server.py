@@ -6,6 +6,7 @@ import urllib.request
 import urllib.error
 import os
 import sys
+import gzip
 import xml.etree.ElementTree as ET
 from datetime import datetime
 import threading
@@ -47,7 +48,6 @@ RSS_FEEDS = [
     ('https://www.thedefiant.io/feed', 'The Defiant'),
     ('https://unchainedcrypto.com/feed/', 'Unchained'),
     ('https://messari.io/rss', 'Messari'),
-    # Global Macro & Geopolitics
     ('https://feeds.bbci.co.uk/news/world/rss.xml', 'BBC World'),
     ('https://rss.nytimes.com/services/xml/rss/nyt/World.xml', 'NYT World'),
     ('https://feeds.bbci.co.uk/news/business/rss.xml', 'BBC Business'),
@@ -60,7 +60,6 @@ RSS_FEEDS = [
     ('https://www.marketwatch.com/rss/topstories', 'MarketWatch'),
     ('https://feeds.reuters.com/reuters/businessNews', 'Reuters Business'),
     ('https://feeds.reuters.com/reuters/worldNews', 'Reuters World'),
-    # Regional Crypto
     ('https://es.cointelegraph.com/rss', 'CT Espa\u00f1ol'),
     ('https://br.cointelegraph.com/rss', 'CT Brasil'),
     ('https://jp.cointelegraph.com/rss', 'CT Japan'),
@@ -69,45 +68,72 @@ RSS_FEEDS = [
 # Cache
 news_cache = []
 news_lock = threading.Lock()
-is_loading = True  # True until first fetch completes
+is_loading = True
+NEWS_CACHE_FILE = '/tmp/news_cache.json'
 
+# AI Cache
+ai_cache = {}
+ai_cache_lock = threading.Lock()
+AI_CACHE_FILE = '/tmp/ai_cache.json'
+
+# ===== CACHE PERSISTENCE =====
+def save_json_cache(filepath, data):
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f)
+    except:
+        pass
+
+def load_json_cache(filepath, default=None):
+    try:
+        if os.path.exists(filepath):
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except:
+        pass
+    return default if default is not None else {}
+
+def load_all_caches():
+    global news_cache, is_loading, ai_cache
+    cached_news = load_json_cache(NEWS_CACHE_FILE, [])
+    if cached_news and len(cached_news) > 0:
+        with news_lock:
+            news_cache = cached_news
+            is_loading = False
+        print(f'[cache] loaded {len(cached_news)} articles from disk')
+    cached_ai = load_json_cache(AI_CACHE_FILE, {})
+    if cached_ai:
+        with ai_cache_lock:
+            ai_cache = cached_ai
+        print(f'[cache] loaded {len(cached_ai)} AI analyses from disk')
+    sys.stdout.flush()
+
+# ===== RSS PARSING =====
 def fetch_single_rss(url, source_name, timeout=8):
-    """Fetch and parse a single RSS feed."""
     articles = []
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'GITNEWS/1.0'})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = resp.read().decode('utf-8', errors='replace')
-
         root = ET.fromstring(data)
-
-        # Handle both RSS 2.0 and Atom
         ns = {'atom': 'http://www.w3.org/2005/Atom'}
         items = root.findall('.//item') or root.findall('.//atom:entry', ns)
-
-        for item in items[:20]:
+        for item in items[:15]:
             title = (item.findtext('title') or item.findtext('atom:title', namespaces=ns) or '').strip()
             link = (item.findtext('link') or '')
             if not link:
                 link_el = item.find('atom:link', ns)
                 link = link_el.get('href', '') if link_el is not None else ''
             link = link.strip()
-
             desc = (item.findtext('description') or item.findtext('atom:summary', namespaces=ns) or '').strip()
             desc = re.sub(r'<[^>]+>', '', desc)[:200]
             if len(desc) >= 200:
                 desc += '...'
-
             content = (item.findtext('{http://purl.org/rss/1.0/modules/content/}encoded') or
                        item.findtext('atom:content', namespaces=ns) or desc)
-
             pub = (item.findtext('pubDate') or item.findtext('atom:published', namespaces=ns) or
                    item.findtext('atom:updated', namespaces=ns) or '')
-
-            # Parse date
             ts = parse_date(pub)
-
-            # Image
             image = ''
             enc = item.find('enclosure')
             if enc is not None and 'image' in (enc.get('type', '')):
@@ -120,10 +146,7 @@ def fetch_single_rss(url, source_name, timeout=8):
                 thumb = item.find('{http://search.yahoo.com/mrss/}thumbnail')
                 if thumb is not None:
                     image = thumb.get('url', '')
-
-            # Categories
             cats = [c.text.strip() for c in item.findall('category') if c.text]
-
             if title and len(title) > 5:
                 articles.append({
                     'id': f'{source_name}-{hash(title) % 10000000}',
@@ -136,43 +159,30 @@ def fetch_single_rss(url, source_name, timeout=8):
                     'timestamp': ts,
                     'tags': cats,
                 })
-    except Exception as e:
+    except Exception:
         pass
     return articles
 
 def parse_date(date_str):
-    """Parse various date formats to timestamp."""
     if not date_str:
         return 0
     date_str = date_str.strip()
-    # Normalize
     date_str = date_str.replace(' GMT', ' +0000').replace(' UTC', ' +0000')
-    # Remove trailing timezone names that aren't offsets
     date_str = re.sub(r'\s+[A-Z]{2,4}$', '', date_str)
-
     formats = [
-        '%a, %d %b %Y %H:%M:%S %z',
-        '%a, %d %b %Y %H:%M:%S',
-        '%Y-%m-%dT%H:%M:%S%z',
-        '%Y-%m-%dT%H:%M:%SZ',
-        '%Y-%m-%dT%H:%M:%S',
-        '%Y-%m-%d %H:%M:%S',
-        '%Y-%m-%d',
-        '%d %b %Y %H:%M:%S',
-        '%d %B %Y %H:%M:%S',
-        '%b %d, %Y',
-        '%B %d, %Y',
+        '%a, %d %b %Y %H:%M:%S %z', '%a, %d %b %Y %H:%M:%S',
+        '%Y-%m-%dT%H:%M:%S%z', '%Y-%m-%dT%H:%M:%SZ', '%Y-%m-%dT%H:%M:%S',
+        '%Y-%m-%d %H:%M:%S', '%Y-%m-%d',
+        '%d %b %Y %H:%M:%S', '%d %B %Y %H:%M:%S',
     ]
     for fmt in formats:
         try:
             dt = datetime.strptime(date_str[:35], fmt)
             ts = int(dt.timestamp() * 1000)
-            if ts > 946684800000:  # After year 2000
+            if ts > 946684800000:
                 return ts
         except:
             pass
-
-    # Last resort: try to extract date parts with regex
     m = re.search(r'(\d{4})-(\d{1,2})-(\d{1,2})', date_str)
     if m:
         try:
@@ -180,14 +190,12 @@ def parse_date(date_str):
             return int(dt.timestamp() * 1000)
         except:
             pass
+    return 0
 
-    return 0  # Return 0 if can't parse — don't use current time
-
+# ===== NEWS REFRESH =====
 def refresh_news():
-    """Fetch all RSS feeds and update cache."""
     global news_cache, is_loading
     all_articles = []
-
     threads = []
     results = [[] for _ in RSS_FEEDS]
 
@@ -198,14 +206,12 @@ def refresh_news():
         t = threading.Thread(target=fetcher, args=(i, url, name))
         threads.append(t)
         t.start()
-
     for t in threads:
         t.join(timeout=12)
 
     for r in results:
         all_articles.extend(r)
 
-    # Dedup
     seen = set()
     deduped = []
     for a in all_articles:
@@ -214,22 +220,22 @@ def refresh_news():
             seen.add(key)
             deduped.append(a)
 
-    # Sort: articles with valid timestamps first (newest), then undated ones at bottom
     deduped.sort(key=lambda x: x['timestamp'] if x['timestamp'] > 0 else 0, reverse=True)
 
     with news_lock:
         news_cache = deduped
         is_loading = False
+        save_json_cache(NEWS_CACHE_FILE, deduped)
 
     print(f'[news] refreshed {len(deduped)} articles from {len(RSS_FEEDS)} sources')
     sys.stdout.flush()
 
 def news_refresh_loop():
-    """Background thread: refresh news every 2 minutes."""
     while True:
         refresh_news()
         time.sleep(120)
 
+# ===== HTTP HANDLER =====
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(200)
@@ -238,42 +244,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split('?')[0]
-
         if path == '/api/news':
             self._serve_news()
             return
-        if path == '/api/ai':
-            # Allow GET for AI too
-            self.send_error(405, 'Use POST')
+        if path == '/api/ai-cache':
+            self._serve_ai_cache()
             return
-
-        # Serve static files
-        if path == '/':
-            path = '/index.html'
-        filepath = os.path.join(DIR, path.lstrip('/'))
-        if os.path.isfile(filepath):
-            ext = os.path.splitext(filepath)[1]
-            content_types = {
-                '.html': 'text/html; charset=utf-8',
-                '.css': 'text/css; charset=utf-8',
-                '.js': 'application/javascript; charset=utf-8',
-                '.json': 'application/json',
-                '.png': 'image/png',
-                '.jpg': 'image/jpeg',
-                '.svg': 'image/svg+xml',
-                '.ico': 'image/x-icon',
-            }
-            ct = content_types.get(ext, 'application/octet-stream')
-            with open(filepath, 'rb') as f:
-                data = f.read()
-            self.send_response(200)
-            self.send_header('Content-Type', ct)
-            self.send_header('Cache-Control', 'no-cache')
-            self._cors()
-            self.end_headers()
-            self.wfile.write(data)
-        else:
-            self.send_error(404)
+        self.send_error(404)
 
     def do_POST(self):
         if self.path == '/api/ai':
@@ -282,7 +259,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
 
     def _serve_news(self):
-        import gzip
         query = self.path.split('?')[1] if '?' in self.path else ''
         params = dict(p.split('=') for p in query.split('&') if '=' in p) if query else {}
         limit = min(int(params.get('limit', 50)), 200)
@@ -308,14 +284,42 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(compressed)
         except (BrokenPipeError, ConnectionResetError):
-            pass  # Client disconnected, ignore
+            pass
+
+    def _serve_ai_cache(self):
+        with ai_cache_lock:
+            raw = json.dumps({'cache': ai_cache, 'total': len(ai_cache)}).encode()
+        try:
+            compressed = gzip.compress(raw)
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Encoding', 'gzip')
+            self.send_header('Content-Length', str(len(compressed)))
+            self._cors()
+            self.end_headers()
+            self.wfile.write(compressed)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def _proxy_ai(self):
         try:
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length)
-            # API key injected server-side — never exposed to frontend
+            body_json = json.loads(body)
             api_key = os.environ.get('OPENAI_API_KEY', '')
+
+            # Generate cache key from prompt
+            messages = body_json.get('messages', [])
+            user_msg = next((m['content'] for m in messages if m.get('role') == 'user'), '')
+            cache_key = user_msg[:100]
+
+            # Check cache
+            with ai_cache_lock:
+                if cache_key in ai_cache:
+                    cached = ai_cache[cache_key]
+                    if time.time() - cached.get('ts', 0) < 3600:  # 1 hour cache
+                        self._send_json(json.loads(cached['response']))
+                        return
 
             req = urllib.request.Request(
                 'https://opengateway.gitlawb.com/v1/chat/completions',
@@ -326,8 +330,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 },
                 method='POST'
             )
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with urllib.request.urlopen(req, timeout=25) as resp:
                 data = resp.read()
+                # Cache result
+                try:
+                    result_json = json.loads(data)
+                    content = result_json.get('choices', [{}])[0].get('message', {}).get('content', '')
+                    if content:
+                        with ai_cache_lock:
+                            ai_cache[cache_key] = {'response': data.decode('utf-8', errors='replace'), 'ts': time.time()}
+                            save_json_cache(AI_CACHE_FILE, ai_cache)
+                except:
+                    pass
+
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json')
                 self._cors()
@@ -347,15 +362,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({'error': str(e)}).encode())
 
+    def _send_json(self, data):
+        raw = json.dumps(data).encode()
+        try:
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self._cors()
+            self.end_headers()
+            self.wfile.write(raw)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def _cors(self):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
     def log_message(self, format, *args):
-        # Suppress BrokenPipeError spam in logs
-        if 'Broken pipe' in str(args) or 'Connection reset' in str(args):
-            return
         pass
 
     def handle_one_request(self):
@@ -367,6 +390,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
 if __name__ == '__main__':
     print(f'GITNEWS running on http://localhost:{PORT}')
     sys.stdout.flush()
+
+    # Load cached data from disk
+    load_all_caches()
 
     # Start background news refresh
     t = threading.Thread(target=news_refresh_loop, daemon=True)
