@@ -63,6 +63,65 @@ RSS_FEEDS = [
     ('https://es.cointelegraph.com/rss', 'CT Espa\u00f1ol'),
     ('https://br.cointelegraph.com/rss', 'CT Brasil'),
     ('https://jp.cointelegraph.com/rss', 'CT Japan'),
+    # Reddit
+    ('https://www.reddit.com/r/CryptoCurrency/hot/.rss', 'Reddit r/Crypto'),
+    ('https://www.reddit.com/r/Bitcoin/hot/.rss', 'Reddit r/Bitcoin'),
+    ('https://www.reddit.com/r/ethereum/hot/.rss', 'Reddit r/Ethereum'),
+    ('https://www.reddit.com/r/CryptoMarkets/hot/.rss', 'Reddit r/CryptoMarkets'),
+    ('https://www.reddit.com/r/defi/hot/.rss', 'Reddit r/DeFi'),
+    ('https://www.reddit.com/r/SatoshiStreetBets/hot/.rss', 'Reddit r/SatoshiBets'),
+    ('https://www.reddit.com/r/cryptocurrencynews/hot/.rss', 'Reddit r/CryptoNews'),
+    # YouTube & Podcasts
+    ('https://www.youtube.com/feeds/videos.xml?channel=UCqK_GSMbpiV8spgD3ZGloSw', 'Coin Bureau YT'),
+    ('https://www.youtube.com/feeds/videos.xml?channel=UCjemQfjaXAvA0ACrMnF3QNg', 'BitBoy YT'),
+    ('https://www.youtube.com/feeds/videos.xml?channel=UCRvqjQPSeaWn-uEx-w0XOIg', 'Digital Asset News YT'),
+    ('https://www.youtube.com/feeds/videos.xml?channel=UCHbD1bKjB9uYjLPVQsOYBSA', 'Altcoin Daily YT'),
+    ('https://www.youtube.com/feeds/videos.xml?channel=UCVLcl7oMMXRoJv6qI9fbhLw', 'Benjamin Cowen YT'),
+    ('https://feeds.simplecast.com/JGE3yC0V', 'Bankless Podcast'),
+    ('https://anchor.fm/s/171a868/podcast/rss', 'Unchained Podcast'),
+    ('https://podcast.coingecko.com/feed', 'CoinGecko Podcast'),
+    # Newsletter & Research
+    ('https://www.theblock.co/rss/all', 'The Block All'),
+    ('https://blog.chain.link/feed/', 'Chainlink Blog'),
+    ('https://medium.com/feed/@VitalikButerin', 'Vitalik Blog'),
+    ('https://medium.com/feed/l2beat', 'L2Beat Blog'),
+    ('https://a16zcrypto.com/feed/', 'a16z Crypto'),
+    ('https://paradigm.xyz/feed.xml', 'Paradigm Research'),
+    ('https://www.circle.com/blog/rss.xml', 'Circle Blog'),
+    ('https://blog.tether.to/feed/', 'Tether Blog'),
+    ('https://medium.com/feed/the-ethereum-name-service', 'ENS Blog'),
+    ('https://blog.opensea.io/rss', 'OpenSea Blog'),
+    ('https://blog.uniswap.org/rss.xml', 'Uniswap Blog'),
+    ('https://aave.com/blog/feed/', 'Aave Blog'),
+    ('https://solana.com/news/rss.xml', 'Solana Blog'),
+    ('https://polkadot.network/blog/feed/', 'Polkadot Blog'),
+    ('https://cardanians.io/en/feed', 'Cardano Feed'),
+    # Additional Crypto
+    ('https://www.coindesk.com/arc/outboundfeeds/podcast/rss/', 'CoinDesk Podcast'),
+    ('https://cointelegraph.com/editors_rss', 'CT Editors Pick'),
+    ('https://www.investing.com/rss/news_285.rss', 'Investing.com Commodities'),
+    ('https://www.investing.com/rss/news_14.rss', 'Investing.com Forex'),
+    ('https://www.fxstreet.com/rss', 'FXStreet'),
+    ('https://www.zerohedge.com/fullrss2.xml', 'ZeroHedge'),
+    ('https://www.coindesk.com/arc/outboundfeeds/arc/outboundfeeds/rss/', 'CoinDesk All'),
+    # Google News Crypto
+    ('https://news.google.com/rss/search?q=cryptocurrency+bitcoin+crypto&hl=en-US&gl=US&ceid=US:en', 'Google News Crypto'),
+    ('https://news.google.com/rss/search?q=ethereum+defi+web3&hl=en-US&gl=US&ceid=US:en', 'Google News DeFi'),
+    ('https://news.google.com/rss/search?q=crypto+regulation+sec&hl=en-US&gl=US&ceid=US:en', 'Google News Regulation'),
+    ('https://news.google.com/rss/search?q=war+conflict+sanctions+tariff&hl=en-US&gl=US&ceid=US:en', 'Google News Geopolitics'),
+    ('https://news.google.com/rss/search?q=federal+reserve+inflation+recession&hl=en-US&gl=US&ceid=US:en', 'Google News Macro'),
+    ('https://news.google.com/rss/search?q=banking+crisis+stock+market+crash&hl=en-US&gl=US&ceid=US:en', 'Google News Banking'),
+    # More crypto media
+    ('https://www.coingape.com/feed', 'CoinGape 2'),
+    ('https://bitcoinmagazine.com/.rss/full/', 'Bitcoin Magazine Full'),
+    ('https://cointelegraph.com/rss/category/altcoin-news', 'CT Altcoin'),
+    ('https://cointelegraph.com/rss/category/regulation-news', 'CT Regulation'),
+    ('https://cointelegraph.com/rss/category/defi-news', 'CT DeFi'),
+    ('https://cointelegraph.com/rss/category/nft-news', 'CT NFT'),
+    ('https://cointelegraph.com/rss/category/technology-news', 'CT Technology'),
+    ('https://cryptonews.com/exclusive/feed/', 'CryptoNews Exclusive'),
+    ('https://www.financemagnates.com/forex/feed/', 'Finance Magnates Forex'),
+    ('https://www.financemagnates.com/fintech/feed/', 'Finance Magnates FinTech'),
 ]
 
 # Cache
@@ -109,7 +168,7 @@ def load_all_caches():
     sys.stdout.flush()
 
 # ===== RSS PARSING =====
-def fetch_single_rss(url, source_name, timeout=8):
+def fetch_single_rss(url, source_name, timeout=10):
     articles = []
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'GITNEWS/1.0'})
@@ -207,7 +266,7 @@ def refresh_news():
         threads.append(t)
         t.start()
     for t in threads:
-        t.join(timeout=12)
+        t.join(timeout=15)
 
     for r in results:
         all_articles.extend(r)
