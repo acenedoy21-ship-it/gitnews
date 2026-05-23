@@ -41,17 +41,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
-        if self.path == '/':
+        path = self.path.split('?')[0]
+        if path == '/':
             self._send_json({'status': 'ok', 'service': 'GITNEWS AI Proxy'})
             return
-        if self.path.startswith('/api/ai-cache'):
+        if path == '/api/ai-cache':
             with ai_cache_lock:
                 self._send_json({'cache': ai_cache, 'total': len(ai_cache)})
             return
         self.send_error(404)
 
     def do_POST(self):
-        if self.path == '/api/ai':
+        if self.path.startswith('/api/ai'):
             self._proxy_ai()
         else:
             self.send_error(404)
