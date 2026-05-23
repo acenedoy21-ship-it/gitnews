@@ -320,7 +320,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _serve_news(self):
         query = self.path.split('?')[1] if '?' in self.path else ''
         params = dict(p.split('=') for p in query.split('&') if '=' in p) if query else {}
-        limit = min(int(params.get('limit', 50)), 200)
+        limit = min(int(params.get('limit', 200)), 500)
 
         with news_lock:
             articles = news_cache[:limit]
