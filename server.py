@@ -281,12 +281,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def _serve_news(self):
         with news_lock:
-            data = json.dumps({'articles': news_cache, 'total': len(news_cache), 'sources': len(RSS_FEEDS)}).encode()
+            raw = json.dumps({'articles': news_cache, 'total': len(news_cache), 'sources': len(RSS_FEEDS)}).encode()
+        # Gzip compress to avoid BrokenPipeError on large responses
+        import gzip
+        compressed = gzip.compress(raw)
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
+        self.send_header('Content-Encoding', 'gzip')
+        self.send_header('Content-Length', str(len(compressed)))
         self._cors()
         self.end_headers()
-        self.wfile.write(data)
+        self.wfile.write(compressed)
 
     def _proxy_ai(self):
         try:
