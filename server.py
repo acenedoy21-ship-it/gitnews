@@ -297,14 +297,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length)
-            auth = self.headers.get('Authorization', '')
+            # API key injected server-side — never exposed to frontend
+            api_key = os.environ.get('OPENAI_API_KEY', '')
 
             req = urllib.request.Request(
                 'https://opengateway.gitlawb.com/v1/chat/completions',
                 data=body,
                 headers={
                     'Content-Type': 'application/json',
-                    'Authorization': auth,
+                    'Authorization': f'Bearer {api_key}',
                 },
                 method='POST'
             )
