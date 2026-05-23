@@ -69,6 +69,7 @@ RSS_FEEDS = [
 # Cache
 news_cache = []
 news_lock = threading.Lock()
+is_loading = True  # True until first fetch completes
 
 def fetch_single_rss(url, source_name, timeout=8):
     """Fetch and parse a single RSS feed."""
@@ -184,7 +185,7 @@ def parse_date(date_str):
 
 def refresh_news():
     """Fetch all RSS feeds and update cache."""
-    global news_cache
+    global news_cache, is_loading
     all_articles = []
 
     threads = []
@@ -218,6 +219,7 @@ def refresh_news():
 
     with news_lock:
         news_cache = deduped
+        is_loading = False
 
     print(f'[news] refreshed {len(deduped)} articles from {len(RSS_FEEDS)} sources')
     sys.stdout.flush()
@@ -280,7 +282,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(404)
 
     def _serve_news(self):
-        # Support pagination and limiting to avoid huge responses
         import gzip
         query = self.path.split('?')[1] if '?' in self.path else ''
         params = dict(p.split('=') for p in query.split('&') if '=' in p) if query else {}
@@ -288,11 +289,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         with news_lock:
             articles = news_cache[:limit]
+            loading = is_loading
             raw = json.dumps({
                 'articles': articles,
                 'total': len(news_cache),
                 'returned': len(articles),
-                'sources': len(RSS_FEEDS)
+                'sources': len(RSS_FEEDS),
+                'loading': loading
             }).encode()
 
         try:
